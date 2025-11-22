@@ -8,8 +8,8 @@ from typing import Optional, Dict, Any, Literal
 from langchain.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from ...market.exchange import Exchange
-from ...market.order import OrderType, OrderSide
+from ...market.models.exchange import Exchange
+from ...market.models.order import OrderType, OrderSide
 
 
 class GetMarketDataInput(BaseModel):

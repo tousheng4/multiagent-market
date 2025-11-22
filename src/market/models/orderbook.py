@@ -1,4 +1,6 @@
+import math
 from typing import Dict, List, Optional, Tuple
+from collections import deque
 from sortedcontainers import SortedDict
 import uuid
 
@@ -23,6 +25,8 @@ class OrderBook:
             symbol: 股票代码
         """
         self.symbol = symbol
+
+        self.tickSize = 0.05
 
         # 买单：价格从高到低 (reverse=True)
         self.bidLevels: SortedDict = SortedDict(lambda px: -px)
@@ -58,9 +62,16 @@ class OrderBook:
         # 尝试撮合
         trades = self._matchOrder(order)
 
-        # 如果订单未完全成交且为限价单，加入订单簿
-        if not order.isFilled and order.orderType == OrderType.LIMIT:
+        if order.isFilled:
+            return trades
+
+        if order.orderType == OrderType.LIMIT:
+            # 限价单挂入簿等待后续撮合
             self._addToBook(order)
+        else:
+            # 市价单采取 IOC：未成交部分立即取消
+            order.cancel()
+            self.orderMap.pop(order.orderId, None)
 
         return trades
 
@@ -79,17 +90,20 @@ class OrderBook:
         if order.isBuy:
             # 买单：与卖单簿撮合
             while order.remainingQuantity > 0 and len(self.askLevels) > 0:
-                askPrice = self.askLevels.keys()[0]
+                askTicks = self.askLevels.keys()[0]
+                askPrice = askTicks * self.tickSize
 
                 # 检查价格是否匹配
-                if order.orderType == OrderType.LIMIT and order.price < askPrice:
-                    break
+                if order.orderType == OrderType.LIMIT:
+                    orderTicks = self.ticking(order.price, OrderSide.BUY)
+                    if orderTicks < askTicks:
+                        break
 
-                askQueue = self.askLevels[askPrice]
+                askQueue = self.askLevels[askTicks]
 
                 if not askQueue:
                     # 清理空价位
-                    del self.askLevels[askPrice]
+                    del self.askLevels[askTicks]
                     continue
 
                 # 与第一个订单撮合（时间优先）
@@ -99,23 +113,26 @@ class OrderBook:
 
                 # 如果对手单完全成交，从订单簿移除
                 if opponentOrder.isFilled:
-                    askQueue.pop(0)
+                    askQueue.popleft()
                     if not askQueue:
-                        del self.askLevels[askPrice]
+                        del self.askLevels[askTicks]
         else:
             # 卖单：与买单簿撮合
             while order.remainingQuantity > 0 and len(self.bidLevels) > 0:
-                bidPrice = self.bidLevels.keys()[0]
+                bidTicks = self.bidLevels.keys()[0]
+                bidPrice = bidTicks * self.tickSize
 
                 # 检查价格是否匹配
-                if order.orderType == OrderType.LIMIT and order.price > bidPrice:
-                    break
+                if order.orderType == OrderType.LIMIT:
+                    orderTicks = self.ticking(order.price, OrderSide.SELL)
+                    if orderTicks > bidTicks:
+                        break
 
-                bidQueue = self.bidLevels[bidPrice]
+                bidQueue = self.bidLevels[bidTicks]
 
                 if not bidQueue:
                     # 清理空价位
-                    del self.bidLevels[bidPrice]
+                    del self.bidLevels[bidTicks]
                     continue
 
                 # 与第一个订单撮合（时间优先）
@@ -125,9 +142,9 @@ class OrderBook:
 
                 # 如果对手单完全成交，从订单簿移除
                 if opponentOrder.isFilled:
-                    bidQueue.pop(0)
+                    bidQueue.popleft()
                     if not bidQueue:
-                        del self.bidLevels[bidPrice]
+                        del self.bidLevels[bidTicks]
 
         return trades
 
@@ -166,6 +183,10 @@ class OrderBook:
         )
 
         self.tradeHistory.append(trade)
+        if buyOrder.isFilled:
+            self.orderMap.pop(buyOrder.orderId, None)
+        if sellOrder.isFilled:
+            self.orderMap.pop(sellOrder.orderId, None)
         return trade
 
     def _addToBook(self, order: Order) -> None:
@@ -178,10 +199,14 @@ class OrderBook:
         if order.price is None:
             raise ValueError("Cannot add market order to orderbook")
 
+        ticks = self.ticking(order.price, order.side)
         queue = self.bidLevels if order.isBuy else self.askLevels
-        if order.price not in queue:
-            queue[order.price] = []
-        queue[order.price].append(order)
+        # if ticks not in queue:
+        #     queue[ticks] = []
+        # queue[ticks].append(order)
+        if ticks not in queue:
+            queue[ticks] = deque()
+        queue[ticks].append(order)
 
     def cancelOrder(self, orderId: str) -> bool:
         """
@@ -201,30 +226,39 @@ class OrderBook:
         if order.status in [OrderStatus.FILLED, OrderStatus.CANCELLED]:
             return False
 
+        if order.price is None:
+            # 市价单不会留在簿上，直接提示不可撤并清理记录
+            self.orderMap.pop(orderId, None)
+            raise ValueError("Cannot cancel market order with no price (IOC orders are not persisted)")
+
         # 从订单簿移除
         queue = self.bidLevels if order.isBuy else self.askLevels
-        if order.price in queue:
-            ordersAtPrice = queue[order.price]
+        ticks = self.ticking(order.price, order.side)
+        if ticks in queue:
+            ordersAtPrice = queue[ticks]
             if order in ordersAtPrice:
                 ordersAtPrice.remove(order)
                 if not ordersAtPrice:
-                    del queue[order.price]
+                    del queue[ticks]
 
         # 更新订单状态
         order.cancel()
+        self.orderMap.pop(orderId, None)
         return True
 
     def getBestBid(self) -> Optional[float]:
         """获取最优买价"""
         if len(self.bidLevels) == 0:
             return None
-        return self.bidLevels.peekitem(0)[0]
+        bestBidTicks = self.bidLevels.peekitem(0)[0]
+        return bestBidTicks * self.tickSize
 
     def getBestAsk(self) -> Optional[float]:
         """获取最优卖价"""
         if len(self.askLevels) == 0:
             return None
-        return self.askLevels.peekitem(0)[0]
+        bestAskTicks = self.askLevels.peekitem(0)[0]
+        return bestAskTicks * self.tickSize
 
     def getMidPrice(self) -> Optional[float]:
         """获取中间价"""
@@ -255,17 +289,19 @@ class OrderBook:
             (买单深度, 卖单深度)，每个元素为(价格, 数量)元组
         """
         bids = []
-        for levelIndex, price in enumerate(self.bidLevels.keys()):
+        for levelIndex, ticks in enumerate(self.bidLevels.keys()):
             if levelIndex >= levels:
                 break
-            quantity = sum(order.remainingQuantity for order in self.bidLevels[price])
+            quantity = sum(order.remainingQuantity for order in self.bidLevels[ticks])
+            price = ticks * self.tickSize
             bids.append((price, quantity))
 
         asks = []
-        for levelIndex, price in enumerate(self.askLevels.keys()):
+        for levelIndex, ticks in enumerate(self.askLevels.keys()):
             if levelIndex >= levels:
                 break
-            quantity = sum(order.remainingQuantity for order in self.askLevels[price])
+            quantity = sum(order.remainingQuantity for order in self.askLevels[ticks])
+            price = ticks * self.tickSize
             asks.append((price, quantity))
 
         return bids, asks
@@ -279,11 +315,12 @@ class OrderBook:
         remainingQuantity = quantity
         total = 0.0
 
-        for price in levelBook.keys():
+        for ticks in levelBook.keys():
             if remainingQuantity <= 0:
                 break
-            levelQuantity = sum(order.remainingQuantity for order in levelBook[price])
+            levelQuantity = sum(order.remainingQuantity for order in levelBook[ticks])
             takeQuantity = min(remainingQuantity, levelQuantity)
+            price = ticks * self.tickSize
             total += takeQuantity * price
             remainingQuantity -= takeQuantity
 
@@ -291,6 +328,19 @@ class OrderBook:
             return None
 
         return total
+
+    def ticking(self, price: Optional[float], side: OrderSide) -> int:
+        """
+        将价格按 tickSize 映射到整数档位。
+        买单向下取整（不超过委托价），卖单向上取整（不低于委托价）。
+        """
+        if price is None:
+            raise ValueError("price must be provided for tick conversion")
+        ratio = price / self.tickSize
+        eps = 1e-9
+        if side == OrderSide.BUY:
+            return int(math.floor(ratio + eps))
+        return int(math.ceil(ratio - eps))
 
     def __repr__(self) -> str:
         bestBid = self.getBestBid()

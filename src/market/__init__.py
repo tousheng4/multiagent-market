@@ -1,6 +1,7 @@
-from .exchange import Exchange
-from .orderbook import OrderBook
-from .order import Order, OrderType, OrderSide, OrderStatus, Trade
+from .models.exchange import Exchange
+from .models.orderbook import OrderBook
+from .models.order import Order, OrderType, OrderSide, OrderStatus, Trade
+from .client import MarketClient, AgentClient
 
 __all__ = [
     'Exchange',
@@ -10,4 +11,6 @@ __all__ = [
     'OrderSide',
     'OrderStatus',
     'Trade',
+    'MarketClient',
+    'AgentClient',
 ]

@@ -1,6 +1,6 @@
 from .data.pipeline import DataLoader, DataFeed
 from .environment.simulation import Simulation
-from .market.exchange import Exchange
+from .market.models.exchange import Exchange
 from blinker import signal
 
 __all__ = [

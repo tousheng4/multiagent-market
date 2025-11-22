@@ -3,6 +3,7 @@ from collections import defaultdict
 import time
 
 from ..market import Exchange, OrderType, OrderSide
+from ..market.client import AgentClient
 from ..data.pipeline import DataFeed
 from blinker import Namespace
 
@@ -62,6 +63,7 @@ class Simulation:
         self.sig_data = self._signal_ns.signal("data")
         self.sig_snapshot = self._signal_ns.signal("market_snapshot")
         self._receivers: Dict[str, Dict[str, Any]] = {}
+        self._last_trade_timestamp: Optional[float] = None
 
     def registerAgent(self, agent: Any, agentId: Optional[str] = None) -> str:
         """
@@ -92,6 +94,8 @@ class Simulation:
             agent.agentId = agentId
         if hasattr(agent, 'exchange'):
             agent.exchange = self.exchange
+        if hasattr(agent, 'market'):
+            agent.market = AgentClient(self.exchange, agentId)
         recv_data = None
         recv_snapshot = None
         if hasattr(agent, 'onEvent'):
@@ -133,6 +137,7 @@ class Simulation:
         stepStartTime = time.time()
 
         # 0. 先推进数据feed（更新行情与时间）
+        time_advanced_before_agents = False
         if self.dataFeed:
             try:
                 feed_snapshot = self.dataFeed.step()
@@ -140,6 +145,7 @@ class Simulation:
                 print(f"DataFeed error: {e}")
             else:
                 if feed_snapshot is not None:
+                    time_advanced_before_agents = True
                     try:
                         self.sig_data.send(self, payload=feed_snapshot)
                     except Exception as e:
@@ -154,9 +160,14 @@ class Simulation:
             except Exception as e:
                 print(f"Error in agent {getattr(agent, 'agentId', 'unknown')}: {e}")
 
-        # 2. 如果未使用dataFeed，仍保证时间推进
-        if not self.dataFeed:
+        # 2. 如果此次没有由 dataFeed 推进时间，则手动推进
+        if not time_advanced_before_agents:
             self.exchange.step()
+
+        # 记录本步交易应该统计的时间戳（考虑 dataFeed 提前推进的情况）
+        current_time = self.exchange.currentTime
+        trade_timestamp = current_time if time_advanced_before_agents else max(0, current_time - 1)
+        self._last_trade_timestamp = trade_timestamp
 
         # 3. 收集市场数据
         stepStats = self._collectStepData()
@@ -201,7 +212,11 @@ class Simulation:
             # 计算本步成交量
             trades = self.exchange.getTradeHistory(symbol=symbol)
             if trades:
-                recentTrades = [t for t in trades if t.timestamp == self.exchange.currentTime - 1]
+                target_ts = self._last_trade_timestamp
+                recentTrades = [
+                    t for t in trades
+                    if target_ts is None or t.timestamp == target_ts
+                ]
                 volume = sum(t.quantity for t in recentTrades)
                 self.volumeHistory[symbol].append(volume)
                 stats['volumes'][symbol] = volume
@@ -312,7 +327,7 @@ class Simulation:
 
     def reset(self) -> None:
         """重置仿真环境"""
-        # 创建新的交易所
+        # 创建新的交易所（保持当前 Simulation 作用域内单例）
         self.exchange = Exchange(initialCash=self.initialCash)
 
         # 重新注册股票
@@ -330,6 +345,8 @@ class Simulation:
                 agent.agentId = agentId
             if hasattr(agent, 'exchange'):
                 agent.exchange = self.exchange
+            if hasattr(agent, 'market'):
+                agent.market = AgentClient(self.exchange, agentId)
             if hasattr(agent, 'reset'):
                 agent.reset()
 
@@ -339,6 +356,13 @@ class Simulation:
         self.volumeHistory.clear()
         self.spreadHistory.clear()
         self.agentPnL.clear()
+        self._last_trade_timestamp = None
+
+        # 重新绑定数据源
+        if self.dataFeed:
+            self.dataFeed.exchange = self.exchange
+            if hasattr(self.dataFeed, 'reset'):
+                self.dataFeed.reset()
 
     def getMarketSnapshot(self) -> Dict[str, Any]:
         """获取市场快照"""

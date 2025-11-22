@@ -9,8 +9,8 @@ import random
 from typing import List
 
 from .BaseAgent import BaseAgent
-from ..market.exchange import Exchange
-from ..market.order import OrderType, OrderSide
+from ..market.models.exchange import Exchange
+from ..market.models.order import OrderType, OrderSide
 from ..strategy import (
     clampSellQuantity,
     marketMakerQuotes,

@@ -4,7 +4,7 @@ from typing import Dict, Iterable, List, Optional
 import os
 import csv
 
-from ..market.exchange import Exchange
+from ..market.models.exchange import Exchange
 
 
 class DataLoader:
@@ -97,8 +97,9 @@ class DataFeed:
         self.factors = self.loader.load_factors()
         # 使用索引推进
         self.index = 0
-        # 对齐长度（以最短价格序列为准）
-        self.length = min(len(self.priceData[s]) for s in symbols if s in self.priceData and self.priceData[s]) if symbols else 0
+        # 对齐长度（以最短价格序列为准），若没有有效数据则长度为0
+        lengths = [len(self.priceData[s]) for s in symbols if self.priceData.get(s)]
+        self.length = min(lengths) if lengths else 0
 
     def step(self) -> Optional[Dict]:
         if self.index >= self.length:

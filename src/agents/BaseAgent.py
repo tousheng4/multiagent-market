@@ -5,7 +5,7 @@
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from abc import ABC, abstractmethod
 
-from ..market.exchange import Exchange
+from ..market.models.exchange import Exchange
 
 if TYPE_CHECKING:
     from .memory.memoryStore import MemoryStore
