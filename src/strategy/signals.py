@@ -1,13 +1,17 @@
 """
-交易信号判定函数。
+交易信号判定函数
+
+Trading signal generation functions.
 """
 
 from typing import Optional
 
 
-def momentumSignal(momentum_value: Optional[float], threshold: float) -> str:
+def momentum_signal(momentum_value: Optional[float], threshold: float) -> str:
     """
-    根据动量值生成信号。
+    根据动量值生成信号
+
+    Generate signal based on momentum value.
     """
     if momentum_value is None:
         return "hold"
@@ -18,11 +22,13 @@ def momentumSignal(momentum_value: Optional[float], threshold: float) -> str:
     return "hold"
 
 
-def crossoverSignal(
+def crossover_signal(
     short_ma: Optional[float], long_ma: Optional[float], deadband: float = 0.0
 ) -> str:
     """
-    均线金叉/死叉信号。
+    均线金叉/死叉信号
+
+    Moving average crossover signal.
     """
     if short_ma is None or long_ma is None:
         return "hold"
@@ -33,11 +39,16 @@ def crossoverSignal(
     return "hold"
 
 
-def breakoutSignal(
-    price: Optional[float], support: Optional[float], resistance: Optional[float], buffer: float = 0.0
+def breakout_signal(
+    price: Optional[float],
+    support: Optional[float],
+    resistance: Optional[float],
+    buffer: float = 0.0,
 ) -> str:
     """
-    突破/回落信号。
+    突破/回落信号
+
+    Breakout/breakdown signal.
     """
     if price is None or support is None or resistance is None:
         return "hold"
@@ -48,9 +59,13 @@ def breakoutSignal(
     return "range"
 
 
-def rsiSignal(rsi_value: Optional[float], overbought: float = 70.0, oversold: float = 30.0) -> str:
+def rsi_signal(
+    rsi_value: Optional[float], overbought: float = 70.0, oversold: float = 30.0
+) -> str:
     """
-    基于 RSI 的超买超卖信号。
+    基于 RSI 的超买超卖信号
+
+    RSI overbought/oversold signal.
     """
     if rsi_value is None:
         return "hold"
@@ -61,9 +76,13 @@ def rsiSignal(rsi_value: Optional[float], overbought: float = 70.0, oversold: fl
     return "hold"
 
 
-def bollingerSignal(price: Optional[float], lower: Optional[float], upper: Optional[float]) -> str:
+def bollinger_signal(
+    price: Optional[float], lower: Optional[float], upper: Optional[float]
+) -> str:
     """
-    布林带反转信号：触及下轨买入，触及上轨卖出。
+    布林带反转信号：触及下轨买入，触及上轨卖出
+
+    Bollinger Bands mean reversion signal.
     """
     if price is None or lower is None or upper is None:
         return "hold"

@@ -52,11 +52,25 @@ class MemoryEntry:
             timestamp = raw_ts
         else:
             try:
-                timestamp = datetime.fromtimestamp(float(raw_ts)) if raw_ts is not None else datetime.utcnow()
+                timestamp = (
+                    datetime.fromtimestamp(float(raw_ts))
+                    if raw_ts is not None
+                    else datetime.utcnow()
+                )
             except Exception:
                 timestamp = datetime.utcnow()
 
-        meta_keys = {"agentId", "agent_id", "step", "stepCount", "msg", "message", "ts", "timestamp", "_id"}
+        meta_keys = {
+            "agentId",
+            "agent_id",
+            "step",
+            "stepCount",
+            "msg",
+            "message",
+            "ts",
+            "timestamp",
+            "_id",
+        }
         metadata = {k: v for k, v in payload.items() if k not in meta_keys}
 
         try:

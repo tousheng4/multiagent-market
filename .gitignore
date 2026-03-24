@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Generated data artifacts
+data/processed/
+*.duckdb
+*.lock

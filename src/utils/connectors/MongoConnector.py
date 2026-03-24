@@ -3,8 +3,9 @@ from typing import Any, Callable, List, Optional, Type
 
 from beanie import Document
 
-from .MemoryConnector import MemoryConnector
 from agents.memory.memoryModels import MemoryEntry
+
+from .MemoryConnector import MemoryConnector
 
 
 class MongoConnector(MemoryConnector):
@@ -13,7 +14,11 @@ class MongoConnector(MemoryConnector):
     通过 runner 让异步 Beanie 在当前同步上下文里执行。
     """
 
-    def __init__(self, document_model: Type[Document], runner: Optional[Callable[[Any], Any]] = None):
+    def __init__(
+        self,
+        document_model: Type[Document],
+        runner: Optional[Callable[[Any], Any]] = None,
+    ):
         self.document_model = document_model
         self.runner = runner
 
@@ -39,6 +44,10 @@ class MongoConnector(MemoryConnector):
         self._run(doc.insert())
 
     def recent(self, agent_id: str, limit: int = 100) -> List[MemoryEntry]:
-        query = self.document_model.find(self.document_model.agentId == agent_id).sort("-timestamp").limit(limit)
+        query = (
+            self.document_model.find(self.document_model.agentId == agent_id)
+            .sort("-timestamp")
+            .limit(limit)
+        )
         docs = self._run(query.to_list())
         return [MemoryEntry.from_record(self._doc_to_dict(doc)) for doc in docs]

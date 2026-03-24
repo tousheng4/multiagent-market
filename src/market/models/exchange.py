@@ -1,332 +1,371 @@
-from typing import Dict, List, Optional, Tuple
-import uuid
+from __future__ import annotations
 
-from .order import Order, OrderType, OrderSide, Trade
+import uuid
+from collections import defaultdict, deque
+from typing import Deque, Dict, List, Optional, Set, Tuple
+
+from ...config import CONFIG
+from ...environment.event_hub import (EV_ORDER_ACK, EV_ORDER_CMD,
+                                      EV_ORDER_REJECT, EV_TRADE, EventHub)
+from ...utils.logger import setup_logger
+from .order import Order, OrderSide, OrderType, Trade
 from .orderbook import OrderBook
-from blinker import Namespace
+
+logger = setup_logger(__name__)
 
 
 class Exchange:
-    """
-    交易所类 - 管理多个股票的订单簿和撮合
+    def __init__(self, initial_cash: float = None, hub: Optional[EventHub] = None):
+        if initial_cash is None:
+            initial_cash = CONFIG.exchange.default_initial_cash
 
-    功能：
-    - 管理多个股票的订单簿
-    - 处理订单提交、撮合、取消
-    - 管理Agent的持仓和现金
-    - 记录交易历史
-    """
+        self.initial_cash = initial_cash
 
-    def __init__(self, initialCash: float = 100000.0):
-        """
-        初始化交易所
+        self.order_books: Dict[str, OrderBook] = {}
+        self.cash_balances: Dict[str, float] = {}
+        self.position_records: Dict[str, Dict[str, int]] = {}
+        self.order_records: Dict[str, Order] = {}
+        self.trade_records: List[Trade] = []
 
-        Args:
-            initialCash: 每个Agent的初始现金
-        """
-        self.initialCash = initialCash
+        # 性能优化：交易历史索引 / Performance optimization: trade history index
+        self._trades_by_symbol: Dict[str, List[Trade]] = defaultdict(list)
+        self._trades_by_agent: Dict[str, List[Trade]] = defaultdict(list)
 
-        # 股票代码 -> 订单簿
-        self.orderBooks: Dict[str, OrderBook] = {}
+        self.current_time = 0
 
-        # Agent ID -> 现金余额
-        self.cashBalances: Dict[str, float] = {}
+        self.hub = hub or EventHub()
+        self._order_sid = ""
 
-        # Agent ID -> {股票代码 -> 持仓数量}
-        self.positionRecords: Dict[str, Dict[str, int]] = {}
+        self._seen: Set[str] = set()
+        self._seen_q: Deque[str] = deque()
+        self._seen_cap = CONFIG.exchange.seen_cache_size
 
-        # 所有订单
-        self.orderRecords: Dict[str, Order] = {}
+    def set_hub(self, hub: EventHub) -> None:
+        self.hub = hub
 
-        # 所有成交
-        self.tradeRecords: List[Trade] = []
+    def _has(self, key: str) -> bool:
+        return bool(key) and key in self._seen
 
-        # 当前时间步
-        self.currentTime = 0
-        # 事件命名空间（实例级）
-        self._signal_ns = Namespace()
-        self.sig_order_submitted = self._signal_ns.signal("order_submitted")
-        self.sig_trade_executed = self._signal_ns.signal("trade_executed")
+    def _mark(self, key: str) -> None:
+        if not key or key in self._seen:
+            return
+        self._seen.add(key)
+        self._seen_q.append(key)
+        while len(self._seen_q) > self._seen_cap:
+            old = self._seen_q.popleft()
+            self._seen.discard(old)
 
-    def registerAgent(self, agentId: str, initialCash: Optional[float] = None) -> None:
-        """
-        注册Agent
+    def start_order_consumer(self) -> None:
+        if self._order_sid:
+            return
+        self._order_sid = self.hub.on(
+            EV_ORDER_CMD, self._on_order_cmd, name="exchange_order_cmd"
+        )
 
-        Args:
-            agentId: Agent ID
-            initialCash: 初始现金（如果不指定则使用默认值）
-        """
-        if agentId in self.cashBalances:
-            raise ValueError(f"Agent {agentId} already registered")
+    def stop_order_consumer(self) -> None:
+        if not self._order_sid:
+            return
+        self.hub.off(EV_ORDER_CMD, self._order_sid)
+        self._order_sid = ""
 
-        cashAmount = initialCash if initialCash is not None else self.initialCash
-        self.cashBalances[agentId] = cashAmount
-        self.positionRecords[agentId] = {}
+    def _on_order_cmd(self, msg: Dict) -> None:
+        """处理订单命令事件（修复逻辑）/ Handle order command event (fixed logic)"""
+        payload = msg.get("payload") or {}
+        cmd_id = str(msg.get("id") or payload.get("cmd_id") or "")
+        if self._has(cmd_id):
+            return
 
-    def addSymbol(self, symbol: str) -> None:
-        """
-        添加新的交易股票
+        try:
+            order_type = OrderType(str(payload.get("order_type", "")).lower())
+            side = OrderSide(str(payload.get("side", "")).lower())
+            qty = int(payload.get("quantity"))
+            raw = payload.get("price")
+            px = None if raw is None else float(raw)
 
-        Args:
-            symbol: 股票代码
-        """
-        if symbol not in self.orderBooks:
-            self.orderBooks[symbol] = OrderBook(symbol)
+            self.submit_order(
+                agent_id=str(payload.get("agent_id")),
+                symbol=str(payload.get("symbol")),
+                order_type=order_type,
+                side=side,
+                quantity=qty,
+                price=px,
+                cmd_id=cmd_id or None,
+            )
+            # ✅ 修复：只在成功后标记 / Fixed: only mark on success
+            self._mark(cmd_id)
 
-    def submitOrder(
+        except Exception as exc:
+            logger.error(f"Order command failed: {exc}", exc_info=True)
+            self.hub.emit(
+                EV_ORDER_REJECT,
+                {
+                    "cmd_id": cmd_id or None,
+                    "agent_id": payload.get("agent_id"),
+                    "symbol": payload.get("symbol"),
+                    "reason": str(exc),
+                },
+                key=cmd_id or str(payload.get("agent_id") or ""),
+                src="exchange",
+            )
+            # ✅ 修复：失败时不标记，允许重试 / Fixed: don't mark on failure
+
+    def publish_order_cmd(
         self,
-        agentId: str,
+        agent_id: str,
         symbol: str,
-        orderType: OrderType,
+        order_type: OrderType,
         side: OrderSide,
         quantity: int,
-        price: Optional[float] = None
+        price: Optional[float] = None,
+        cmd_id: Optional[str] = None,
+    ) -> str:
+        msg = self.hub.emit(
+            EV_ORDER_CMD,
+            {
+                "cmd_id": cmd_id,
+                "agent_id": agent_id,
+                "symbol": symbol,
+                "order_type": order_type.value,
+                "side": side.value,
+                "quantity": int(quantity),
+                "price": None if price is None else float(price),
+            },
+            key=cmd_id or f"{agent_id}:{symbol}:{self.current_time}",
+            src=f"agent:{agent_id}",
+            eid=cmd_id,
+        )
+        return str(msg["id"])
+
+    def register_agent(
+        self, agent_id: str, initial_cash: Optional[float] = None
+    ) -> None:
+        if agent_id in self.cash_balances:
+            raise ValueError(f"Agent {agent_id} already registered")
+
+        cash = initial_cash if initial_cash is not None else self.initial_cash
+        self.cash_balances[agent_id] = cash
+        self.position_records[agent_id] = {}
+
+    def add_symbol(self, symbol: str) -> None:
+        if symbol not in self.order_books:
+            self.order_books[symbol] = OrderBook(symbol)
+
+    def submit_order(
+        self,
+        agent_id: str,
+        symbol: str,
+        order_type: OrderType,
+        side: OrderSide,
+        quantity: int,
+        price: Optional[float] = None,
+        cmd_id: Optional[str] = None,
     ) -> Tuple[Order, List[Trade]]:
-        """
-        提交订单
-        Args:
-            agentId: Agent ID
-            symbol: 股票代码
-            orderType: 订单类型
-            side: 买卖方向
-            quantity: 数量
-            price: 价格（市价单为None）
+        if agent_id not in self.cash_balances:
+            raise ValueError(f"Agent {agent_id} not registered")
 
-        Returns:
-            (订单对象, 成交列表)
-        """
-        if agentId not in self.cashBalances:
-            raise ValueError(f"Agent {agentId} not registered")
-
-        if symbol not in self.orderBooks:
+        if symbol not in self.order_books:
             raise ValueError(f"Symbol {symbol} not found")
 
         order = Order(
-            orderId=str(uuid.uuid4()),
-            agentId=agentId,
+            order_id=str(uuid.uuid4()),
+            agent_id=agent_id,
             symbol=symbol,
-            orderType=orderType,
+            order_type=order_type,
             side=side,
             quantity=quantity,
             price=price,
-            timestamp=self.currentTime
+            timestamp=self.current_time,
         )
 
-        if not self._riskCheck(order):
+        if not self._risk_check(order):
             raise ValueError(f"Risk check failed for order {order}")
 
-        self.orderRecords[order.orderId] = order
-
-        book = self.orderBooks[symbol]
-        trades = book.addOrder(order)
+        self.order_records[order.order_id] = order
+        trades = self.order_books[symbol].add_order(order)
 
         for trade in trades:
-            trade.timestamp = float(self.currentTime)
-            self._settleTrade(trade)
-            try:
-                self.sig_trade_executed.send(self, trade=trade)
-            except Exception as e:
-                print(f"Trade event dispatch error: {e}")
+            trade.timestamp = float(self.current_time)
+            self._settle_trade(trade)
+            self.hub.emit(
+                EV_TRADE,
+                {
+                    "trade_id": trade.trade_id,
+                    "symbol": trade.symbol,
+                    "buy_order_id": trade.buy_order_id,
+                    "sell_order_id": trade.sell_order_id,
+                    "buyer_id": trade.buyer_id,
+                    "seller_id": trade.seller_id,
+                    "price": float(trade.price),
+                    "quantity": int(trade.quantity),
+                    "timestamp": trade.timestamp,
+                    "cmd_id": cmd_id,
+                    "order_id": order.order_id,
+                },
+                key=trade.trade_id,
+                src="exchange",
+            )
 
-        self.tradeRecords.extend(trades)
-        try:
-            self.sig_order_submitted.send(self, order=order)
-        except Exception as e:
-            print(f"Order event dispatch error: {e}")
+        self.trade_records.extend(trades)
+
+        self.hub.emit(
+            EV_ORDER_ACK,
+            {
+                "cmd_id": cmd_id,
+                "order_id": order.order_id,
+                "agent_id": order.agent_id,
+                "symbol": order.symbol,
+                "order_type": order.order_type.value,
+                "side": order.side.value,
+                "quantity": int(order.quantity),
+                "price": None if order.price is None else float(order.price),
+                "filled_quantity": int(order.filled_quantity),
+                "status": order.status.value,
+                "timestamp": self.current_time,
+                "trade_ids": [t.trade_id for t in trades],
+            },
+            key=cmd_id or order.order_id,
+            src="exchange",
+        )
+
+        if cmd_id:
+            self._mark(cmd_id)
 
         return order, trades
 
-    def _riskCheck(self, order: Order) -> bool:
-        """
-        风控检查
+    def _risk_check(self, order: Order) -> bool:
+        """风险检查（优化错误处理）/ Risk check with improved error handling"""
+        aid = order.agent_id
 
-        Args:
-            order: 订单
-
-        Returns:
-            是否通过检查
-        """
-        agentId = order.agentId
-
-        if order.isBuy:
-            requiredCash = self._estimateBuyCash(order)
-            if requiredCash is None:
+        if order.is_buy:
+            required = self._estimate_buy_cost(order)
+            if required is None:
+                logger.warning(
+                    f"Cannot estimate cost for market order {order.order_id}: "
+                    f"orderbook for {order.symbol} is empty"
+                )
                 return False
+            return self.cash_balances[aid] >= required
 
-            if self.cashBalances[agentId] < requiredCash:
-                return False
-        else:
-            positionQuantity = self.positionRecords[agentId].get(order.symbol, 0)
-            if positionQuantity < order.quantity:
-                return False
+        pos = self.position_records[aid].get(order.symbol, 0)
+        return pos >= order.quantity
 
-        return True
-
-    def _estimateBuyCash(self, order: Order) -> Optional[float]:
-        """估算买单需要的现金，市价单会逐档遍历盘口。"""
-        if order.orderType == OrderType.LIMIT:
+    def _estimate_buy_cost(self, order: Order) -> Optional[float]:
+        if order.order_type == OrderType.LIMIT:
             if order.price is None:
                 return None
             return order.price * order.quantity
 
-        book = self.orderBooks[order.symbol]
-        return book.estimateFillCost(OrderSide.BUY, order.quantity)
+        book = self.order_books[order.symbol]
+        return book.estimate_cost(OrderSide.BUY, order.quantity)
 
-    def _settleTrade(self, trade: Trade) -> None:
-        """
-        结算成交
-
-        Args:
-            trade: 成交记录
-        """
-        buyer = trade.buyerId
-        seller = trade.sellerId
+    def _settle_trade(self, trade: Trade) -> None:
+        """结算交易（添加索引）/ Settle trade with index update"""
+        buyer = trade.buyer_id
+        seller = trade.seller_id
         symbol = trade.symbol
-        tradeQuantity = trade.quantity
-        grossValue = trade.price * tradeQuantity
+        qty = trade.quantity
+        gross = trade.price * qty
 
-        # 更新现金
-        self.cashBalances[buyer] -= grossValue
-        self.cashBalances[seller] += grossValue
+        self.cash_balances[buyer] -= gross
+        self.cash_balances[seller] += gross
 
-        # 更新持仓
-        if symbol not in self.positionRecords[buyer]:
-            self.positionRecords[buyer][symbol] = 0
-        if symbol not in self.positionRecords[seller]:
-            self.positionRecords[seller][symbol] = 0
+        if symbol not in self.position_records[buyer]:
+            self.position_records[buyer][symbol] = 0
+        if symbol not in self.position_records[seller]:
+            self.position_records[seller][symbol] = 0
 
-        self.positionRecords[buyer][symbol] += tradeQuantity
-        self.positionRecords[seller][symbol] -= tradeQuantity
+        self.position_records[buyer][symbol] += qty
+        self.position_records[seller][symbol] -= qty
 
-    def cancelOrder(self, orderId: str) -> bool:
-        """
-        取消订单
+        # ✅ 性能优化：更新索引 / Performance optimization: update index
+        self._trades_by_symbol[symbol].append(trade)
+        self._trades_by_agent[buyer].append(trade)
+        self._trades_by_agent[seller].append(trade)
 
-        Args:
-            orderId: 订单ID
-
-        Returns:
-            是否成功取消
-        """
-        if orderId not in self.orderRecords:
+    def cancel_order(self, order_id: str) -> bool:
+        if order_id not in self.order_records:
             return False
+        order = self.order_records[order_id]
+        return self.order_books[order.symbol].cancel_order(order_id)
 
-        order = self.orderRecords[orderId]
-        book = self.orderBooks[order.symbol]
-        return book.cancelOrder(orderId)
+    def get_order_book(self, symbol: str) -> Optional[OrderBook]:
+        return self.order_books.get(symbol)
 
-    def getOrderBook(self, symbol: str) -> Optional[OrderBook]:
-        """获取指定股票的订单簿"""
-        return self.orderBooks.get(symbol)
-
-    def getAccount(self, agentId: str) -> Dict:
-        """
-        获取Agent账户信息
-
-        Args:
-            agentId: Agent ID
-
-        Returns:
-            账户信息字典
-        """
-        if agentId not in self.cashBalances:
-            raise ValueError(f"Agent {agentId} not found")
+    def get_account(self, agent_id: str) -> Dict:
+        if agent_id not in self.cash_balances:
+            raise ValueError(f"Agent {agent_id} not found")
 
         return {
-            "cash": self.cashBalances[agentId],
-            "positions": self.positionRecords[agentId].copy(),
-            "portfolio_value": self._calculatePortfolioValue(agentId)
+            "cash": self.cash_balances[agent_id],
+            "positions": self.position_records[agent_id].copy(),
+            "portfolio_value": self._calc_portfolio_value(agent_id),
         }
 
-    def _calculatePortfolioValue(self, agentId: str) -> float:
-        """
-        计算Agent的总资产价值
+    def _calc_portfolio_value(self, agent_id: str) -> float:
+        """计算投资组合价值 / Calculate portfolio value"""
+        total = self.cash_balances[agent_id]
 
-        Args:
-            agentId: Agent ID
-
-        Returns:
-            总资产价值
-        """
-        totalValue = self.cashBalances[agentId]
-
-        for symbol, quantity in self.positionRecords[agentId].items():
-            if quantity == 0:
+        for symbol, qty in self.position_records[agent_id].items():
+            if qty == 0:
                 continue
+            book = self.order_books[symbol]
+            mid = book.mid_price
+            if mid is None:
+                mid = book.last_price
+            if mid is not None:
+                total += qty * mid
 
-            book = self.orderBooks[symbol]
+        return total
 
-            # 使用中间价估值
-            midPrice = book.getMidPrice()
-            if midPrice is None:
-                # 如果没有中间价，使用最新成交价
-                midPrice = book.lastPrice
-
-            if midPrice is not None:
-                totalValue += quantity * midPrice
-
-        return totalValue
-
-    def getMarketData(self, symbol: str) -> Dict:
-        """
-        获取市场数据
-
-        Args:
-            symbol: 股票代码
-
-        Returns:
-            市场数据字典
-        """
-        if symbol not in self.orderBooks:
+    def get_market_data(self, symbol: str) -> Dict:
+        if symbol not in self.order_books:
             raise ValueError(f"Symbol {symbol} not found")
 
-        book = self.orderBooks[symbol]
-        bids, asks = book.getDepth(levels=5)
+        book = self.order_books[symbol]
+        bids, asks = book.get_depth(levels=5)
 
         return {
             "symbol": symbol,
-            "best_bid": book.getBestBid(),
-            "best_ask": book.getBestAsk(),
-            "mid_price": book.getMidPrice(),
-            "spread": book.getSpread(),
-            "last_price": book.lastPrice,
+            "best_bid": book.best_bid,
+            "best_ask": book.best_ask,
+            "mid_price": book.mid_price,
+            "spread": book.spread,
+            "last_price": book.last_price,
             "bids": bids,
             "asks": asks,
-            "timestamp": self.currentTime
+            "timestamp": self.current_time,
         }
 
     def step(self) -> None:
-        """时间步进"""
-        self.currentTime += 1
+        self.current_time += 1
 
-    def updateMarketPrice(self, symbol: str, price: float) -> None:
-        """外部数据源更新最新成交价，用于数据管线驱动行情。"""
-        if symbol not in self.orderBooks:
+    def update_price(self, symbol: str, price: float) -> None:
+        """更新市场价格（简化名称）/ Update market price (simplified name)"""
+        if symbol not in self.order_books:
             raise ValueError(f"Symbol {symbol} not found")
-        self.orderBooks[symbol].lastPrice = float(price)
+        self.order_books[symbol].last_price = float(price)
 
-    def getTradeHistory(self, symbol: Optional[str] = None, agentId: Optional[str] = None) -> List[Trade]:
-        """
-        获取成交历史
+    def get_trade_history(
+        self, symbol: Optional[str] = None, agent_id: Optional[str] = None
+    ) -> List[Trade]:
+        """获取交易历史（使用索引优化）/ Get trade history with index optimization"""
+        # ✅ 性能优化：优先使用索引 / Performance optimization: use index when possible
+        if symbol is not None and agent_id is None:
+            return self._trades_by_symbol.get(symbol, []).copy()
 
-        Args:
-            symbol: 股票代码（可选）
-            agentId: Agent ID（可选）
+        if agent_id is not None and symbol is None:
+            return self._trades_by_agent.get(agent_id, []).copy()
 
-        Returns:
-            成交记录列表
-        """
-        trades = self.tradeRecords
+        # 需要同时过滤时，使用较小的集合作为基础
+        if symbol is not None and agent_id is not None:
+            agent_trades = self._trades_by_agent.get(agent_id, [])
+            return [t for t in agent_trades if t.symbol == symbol]
 
-        if symbol is not None:
-            trades = [t for t in trades if t.symbol == symbol]
-
-        if agentId is not None:
-            trades = [t for t in trades if t.buyerId == agentId or t.sellerId == agentId]
-
-        return trades
+        # 都不指定时返回全部
+        return self.trade_records.copy()
 
     def __repr__(self) -> str:
-        return (f"Exchange(symbols={list(self.orderBooks.keys())}, "
-            f"agents={len(self.cashBalances)}, "
-            f"trades={len(self.tradeRecords)})")
+        return (
+            f"Exchange(symbols={list(self.order_books.keys())}, "
+            f"agents={len(self.cash_balances)}, trades={len(self.trade_records)})"
+        )

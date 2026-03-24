@@ -1,70 +1,55 @@
 """
-下载常用公开金融数据到 data/raw。
+阶段 1 数据入口：
+1) 下载 Stooq + Fama-French 到 data/raw（可选）
+2) 清洗并按日期对齐
+3) 生成统一快照产物到 data/processed（DuckDB）
 
-包含：
-- Stooq 日线 OHLCV：AAPL、TSLA、SPY
-- Fama-French 5 因子（2x3，日频）
-
-运行：python3 data/fetch_public_data.py
+示例：
+- python data/fetch.py
+- python data/fetch.py --skip-download --symbols AAPL,TSLA,SPY
 """
 
 from __future__ import annotations
 
-import io
+import argparse
 import os
 import sys
-import zipfile
-from urllib.request import urlopen
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from src.data.pipeline import DataLoader
 
 
-DEF_SYMBOLS = ["aapl", "tsla", "spy"]
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build unified market snapshots for stage-1 pipeline.")
+    parser.add_argument("--symbols", default="AAPL,TSLA,SPY", help="Comma-separated symbols.")
+    parser.add_argument("--artifact-name", default="market_snapshots", help="Output artifact name.")
+    parser.add_argument("--skip-download", action="store_true", help="Skip download and use existing raw files.")
+    return parser.parse_args()
 
 
-def download_stooq(symbols: list[str], out_dir: str) -> None:
-    os.makedirs(out_dir, exist_ok=True)
-    for sym in symbols:
-        url = f"https://stooq.pl/q/d/l/?s={sym}.us&i=d"
-        try:
-            with urlopen(url) as resp:
-                data = resp.read()
-        except Exception as exc:
-            print(f"[stooq] download failed for {sym}: {exc}", file=sys.stderr)
-            continue
-        out_path = os.path.join(out_dir, f"{sym.upper()}_daily.csv")
-        with open(out_path, "wb") as f:
-            f.write(data)
-        print(f"[stooq] wrote {out_path} ({len(data)} bytes)")
+def main() -> None:
+    args = parse_args()
+    symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+    data_root = os.path.abspath(os.path.dirname(__file__))
+    loader = DataLoader(root_dir=data_root)
 
+    if not args.skip_download:
+        print(f"[stage1] downloading raw datasets for: {symbols}")
+        loader.download(symbols=symbols, with_factors=True)
 
-def download_fama_french(out_dir: str) -> None:
-    os.makedirs(out_dir, exist_ok=True)
-    url = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Research_Data_5_Factors_2x3_daily_CSV.zip"
-    try:
-        with urlopen(url) as resp:
-            zdata = resp.read()
-    except Exception as exc:
-        print(f"[fama_french] download failed: {exc}", file=sys.stderr)
-        return
+    print("[stage1] building aligned snapshot frame")
+    frame = loader.build(symbols)
+    written = loader.save(frame, name=args.artifact_name)
 
-    zf = zipfile.ZipFile(io.BytesIO(zdata))
-    name = next((n for n in zf.namelist() if n.lower().endswith(".csv")), None)
-    if not name:
-        print("[fama_french] csv not found in zip", file=sys.stderr)
-        return
-
-    content = zf.read(name).decode("utf-8")
-    clean_lines = [line for line in content.splitlines() if line.strip() and not line.lower().startswith("copyright")]
-
-    out_path = os.path.join(out_dir, "fama_french_5f_daily.csv")
-    with open(out_path, "w", encoding="utf-8", newline="") as f:
-        f.write("\n".join(clean_lines) + "\n")
-    print(f"[fama_french] wrote {out_path} with {len(clean_lines)} lines")
-
-
-def main():
-    raw_dir = os.path.join(os.path.dirname(__file__), "raw")
-    download_stooq(DEF_SYMBOLS, raw_dir)
-    download_fama_french(raw_dir)
+    print(f"[stage1] snapshot rows: {len(frame)}")
+    if written:
+        print(f"[stage1] wrote duckdb: {written.get('duckdb')}")
+        print(f"[stage1] table: {written.get('table')}")
+    else:
+        print("[stage1] no snapshot artifact written (empty frame)")
 
 
 if __name__ == "__main__":

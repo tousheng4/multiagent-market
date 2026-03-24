@@ -4,21 +4,24 @@
 这些工具允许Agent查询市场数据和提交订单
 """
 
-from typing import Optional, Dict, Any, Literal
+from typing import Any, Dict, Literal, Optional
+
 from langchain.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from ...market.models.exchange import Exchange
-from ...market.models.order import OrderType, OrderSide
+from ...market.models.order import OrderSide, OrderType
 
 
 class GetMarketDataInput(BaseModel):
     """获取市场数据的输入参数"""
+
     symbol: str = Field(description="股票代码，例如 'AAPL'")
 
 
 class GetMarketDataTool(BaseTool):
     """获取市场数据工具"""
+
     name: str = "get_market_data"
     description: str = """获取指定股票的市场数据，包括：
     - 最优买价(best_bid)和卖价(best_ask)
@@ -49,11 +52,13 @@ class GetMarketDataTool(BaseTool):
 
 class GetAccountInput(BaseModel):
     """获取账户信息的输入参数"""
+
     pass  # 不需要参数，使用agent自己的ID
 
 
 class GetAccountTool(BaseTool):
     """获取账户信息工具"""
+
     name: str = "get_account"
     description: str = """获取当前账户信息，包括：
     - 现金余额(cash)
@@ -82,15 +87,21 @@ class GetAccountTool(BaseTool):
 
 class SubmitOrderInput(BaseModel):
     """提交订单的输入参数"""
+
     symbol: str = Field(description="股票代码，例如 'AAPL'")
     side: Literal["buy", "sell"] = Field(description="买卖方向: 'buy' 或 'sell'")
     quantity: int = Field(gt=0, description="数量，必须是正整数")
-    order_type: Literal["limit", "market"] = Field(description="订单类型: 'limit'(限价单) 或 'market'(市价单)")
-    price: Optional[float] = Field(default=None, description="价格（限价单必须提供，市价单不需要，必须为正）")
+    order_type: Literal["limit", "market"] = Field(
+        description="订单类型: 'limit'(限价单) 或 'market'(市价单)"
+    )
+    price: Optional[float] = Field(
+        default=None, description="价格（限价单必须提供，市价单不需要，必须为正）"
+    )
 
 
 class SubmitOrderTool(BaseTool):
     """提交订单工具"""
+
     name: str = "submit_order"
     description: str = """提交买入或卖出订单。参数说明：
     - symbol: 股票代码 (例如 'AAPL')
@@ -116,7 +127,7 @@ class SubmitOrderTool(BaseTool):
         side: str,
         quantity: int,
         order_type: str,
-        price: Optional[float] = None
+        price: Optional[float] = None,
     ) -> Dict[str, Any]:
         """执行工具"""
         try:
@@ -126,7 +137,10 @@ class SubmitOrderTool(BaseTool):
 
             if orderType == OrderType.LIMIT:
                 if price is None or price <= 0:
-                    return {"success": False, "error": "limit order requires positive price"}
+                    return {
+                        "success": False,
+                        "error": "limit order requires positive price",
+                    }
             else:
                 price = None
 
@@ -137,7 +151,7 @@ class SubmitOrderTool(BaseTool):
                 orderType=orderType,
                 side=orderSide,
                 quantity=quantity,
-                price=price
+                price=price,
             )
 
             return {
@@ -151,10 +165,12 @@ class SubmitOrderTool(BaseTool):
                     {
                         "price": t.price,
                         "quantity": t.quantity,
-                        "counterparty": t.sellerId if orderSide == OrderSide.BUY else t.buyerId
+                        "counterparty": (
+                            t.sellerId if orderSide == OrderSide.BUY else t.buyerId
+                        ),
                     }
                     for t in trades
-                ]
+                ],
             }
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -165,7 +181,7 @@ class SubmitOrderTool(BaseTool):
         side: str,
         quantity: int,
         order_type: str,
-        price: Optional[float] = None
+        price: Optional[float] = None,
     ) -> Dict[str, Any]:
         """异步执行（暂不支持）"""
         raise NotImplementedError("submit_order does not support async")
@@ -173,13 +189,21 @@ class SubmitOrderTool(BaseTool):
 
 class GetTradeHistoryInput(BaseModel):
     """获取交易历史的输入参数"""
-    symbol: Optional[str] = Field(default=None, description="股票代码（可选），不提供则返回所有股票的交易")
-    limit: int = Field(default=50, gt=0, le=500, description="返回的最大交易条数，按时间倒序")
-    after_ts: Optional[float] = Field(default=None, description="仅返回时间戳大于该值的交易记录")
+
+    symbol: Optional[str] = Field(
+        default=None, description="股票代码（可选），不提供则返回所有股票的交易"
+    )
+    limit: int = Field(
+        default=50, gt=0, le=500, description="返回的最大交易条数，按时间倒序"
+    )
+    after_ts: Optional[float] = Field(
+        default=None, description="仅返回时间戳大于该值的交易记录"
+    )
 
 
 class GetTradeHistoryTool(BaseTool):
     """获取交易历史工具"""
+
     name: str = "get_trade_history"
     description: str = """获取自己的交易历史记录。
     可以指定股票代码过滤，或不指定获取所有交易。支持 limit 和 after_ts 过滤，按时间倒序返回。"""
@@ -191,13 +215,22 @@ class GetTradeHistoryTool(BaseTool):
     class Config:
         arbitrary_types_allowed = True
 
-    def _run(self, symbol: Optional[str] = None, limit: int = 50, after_ts: Optional[float] = None) -> Dict[str, Any]:
+    def _run(
+        self,
+        symbol: Optional[str] = None,
+        limit: int = 50,
+        after_ts: Optional[float] = None,
+    ) -> Dict[str, Any]:
         """执行工具"""
         try:
             trades = self.exchange.getTradeHistory(symbol=symbol, agentId=self.agentId)
 
             if after_ts is not None:
-                trades = [t for t in trades if t.timestamp is not None and t.timestamp > after_ts]
+                trades = [
+                    t
+                    for t in trades
+                    if t.timestamp is not None and t.timestamp > after_ts
+                ]
 
             trades = sorted(trades, key=lambda t: t.timestamp or 0.0, reverse=True)
             total = len(trades)
@@ -213,16 +246,21 @@ class GetTradeHistoryTool(BaseTool):
                         "side": "buy" if t.buyerId == self.agentId else "sell",
                         "price": t.price,
                         "quantity": t.quantity,
-                        "timestamp": t.timestamp
+                        "timestamp": t.timestamp,
                     }
                     for t in trades
                 ],
-                "truncated": total > limit
+                "truncated": total > limit,
             }
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def _arun(self, symbol: Optional[str] = None, limit: int = 50, after_ts: Optional[float] = None) -> Dict[str, Any]:
+    async def _arun(
+        self,
+        symbol: Optional[str] = None,
+        limit: int = 50,
+        after_ts: Optional[float] = None,
+    ) -> Dict[str, Any]:
         """异步执行（暂不支持）"""
         raise NotImplementedError("get_trade_history does not support async")
 
@@ -242,5 +280,5 @@ def create_market_tools(exchange: Exchange, agentId: str):
         GetMarketDataTool(exchange=exchange),
         GetAccountTool(exchange=exchange, agentId=agentId),
         SubmitOrderTool(exchange=exchange, agentId=agentId),
-        GetTradeHistoryTool(exchange=exchange, agentId=agentId)
+        GetTradeHistoryTool(exchange=exchange, agentId=agentId),
     ]

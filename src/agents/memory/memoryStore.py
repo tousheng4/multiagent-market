@@ -2,11 +2,14 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from utils.connectors.MemoryConnector import MemoryConnector
+
 from .memoryModels import MemoryEntry
 
 
 class MemoryStore:
-    def append(self, agentId: str, stepCount: int, message: str, meta: Optional[Dict] = None) -> None:
+    def append(
+        self, agentId: str, stepCount: int, message: str, meta: Optional[Dict] = None
+    ) -> None:
         raise NotImplementedError
 
     def recent_entries(self, agentId: str, limit: int = 100) -> List[MemoryEntry]:
@@ -17,11 +20,17 @@ class MemoryStore:
 
 
 class DualMemoryStore(MemoryStore):
-    def __init__(self, redisConnector: Optional[MemoryConnector] = None, mongoConnector: Optional[MemoryConnector] = None):
+    def __init__(
+        self,
+        redisConnector: Optional[MemoryConnector] = None,
+        mongoConnector: Optional[MemoryConnector] = None,
+    ):
         self.redisConnector = redisConnector
         self.mongoConnector = mongoConnector
 
-    def append(self, agentId: str, stepCount: int, message: str, meta: Optional[Dict] = None) -> None:
+    def append(
+        self, agentId: str, stepCount: int, message: str, meta: Optional[Dict] = None
+    ) -> None:
         entry = MemoryEntry(
             agent_id=agentId,
             step=stepCount,

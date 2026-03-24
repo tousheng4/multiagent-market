@@ -1,9 +1,11 @@
 """
-常见的技术指标计算工具。
+常见的技术指标计算工具
+
+Common technical indicator calculation utilities.
 """
 
-from typing import Iterable, List, Optional, Tuple
 import math
+from typing import Iterable, List, Optional, Tuple
 
 
 def _ensure_window(prices: Iterable[float], window: int) -> List[float]:
@@ -12,9 +14,11 @@ def _ensure_window(prices: Iterable[float], window: int) -> List[float]:
     return list(prices)
 
 
-def simpleMovingAverage(prices: Iterable[float], window: int) -> Optional[float]:
+def simple_ma(prices: Iterable[float], window: int) -> Optional[float]:
     """
-    计算简单移动平均线（SMA）。
+    计算简单移动平均线（SMA）
+
+    Calculate Simple Moving Average.
     """
     data = _ensure_window(prices, window)
     if len(data) < window:
@@ -23,12 +27,15 @@ def simpleMovingAverage(prices: Iterable[float], window: int) -> Optional[float]
     return sum(window_slice) / window
 
 
-def exponentialMovingAverage(
+def ema(
     prices: Iterable[float], window: int, previous_ema: Optional[float] = None
 ) -> Optional[float]:
     """
-    计算指数移动平均线（EMA）。
-    previous_ema 可用于迭代更新，否则使用前 window 个数据的均值作为初始值。
+    计算指数移动平均线（EMA）
+
+    Calculate Exponential Moving Average.
+
+    previous_ema 可用于迭代更新，否则使用前 window 个数据的均值作为初始值
     """
     data = _ensure_window(prices, window)
     if len(data) < window:
@@ -37,21 +44,23 @@ def exponentialMovingAverage(
     smoothing = 2 / (window + 1)
 
     if previous_ema is None:
-        ema = simpleMovingAverage(data[:window], window)
+        ema_val = simple_ma(data[:window], window)
     else:
-        ema = previous_ema
+        ema_val = previous_ema
 
-    if ema is None:
+    if ema_val is None:
         return None
 
     for price in data[-window:]:
-        ema = (price - ema) * smoothing + ema
-    return ema
+        ema_val = (price - ema_val) * smoothing + ema_val
+    return ema_val
 
 
 def momentum(prices: Iterable[float], lookback: int) -> Optional[float]:
     """
-    计算动量（当前价格相对 lookback 期前的百分比变化）。
+    计算动量（当前价格相对 lookback 期前的百分比变化）
+
+    Calculate momentum (percentage change from lookback periods ago).
     """
     data = _ensure_window(prices, lookback)
     if len(data) < lookback:
@@ -65,7 +74,9 @@ def momentum(prices: Iterable[float], lookback: int) -> Optional[float]:
 
 def volatility(prices: Iterable[float], window: int) -> Optional[float]:
     """
-    粗略计算波动率：基于价格的简单收益标准差。
+    粗略计算波动率：基于价格的简单收益标准差
+
+    Calculate volatility based on simple return standard deviation.
     """
     data = _ensure_window(prices, window)
     if len(data) <= window:
@@ -84,11 +95,13 @@ def volatility(prices: Iterable[float], window: int) -> Optional[float]:
     return math.sqrt(variance)
 
 
-def bollingerBands(
+def bollinger_bands(
     prices: Iterable[float], window: int, num_std: float = 2.0
 ) -> Optional[Tuple[float, float, float]]:
     """
-    计算布林带（下轨、上轨、中轨）。
+    计算布林带（下轨、上轨、中轨）
+
+    Calculate Bollinger Bands (lower, upper, middle).
     """
     data = _ensure_window(prices, window)
     if len(data) < window:
@@ -103,9 +116,11 @@ def bollingerBands(
     return lower, upper, mean
 
 
-def relativeStrengthIndex(prices: Iterable[float], window: int) -> Optional[float]:
+def rsi(prices: Iterable[float], window: int) -> Optional[float]:
     """
-    计算 RSI，相对强弱指标，返回 0-100。
+    计算 RSI，相对强弱指标，返回 0-100
+
+    Calculate Relative Strength Index (0-100).
     """
     if window <= 0:
         raise ValueError("window must be positive")
@@ -133,3 +148,11 @@ def relativeStrengthIndex(prices: Iterable[float], window: int) -> Optional[floa
 
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
+
+
+# Backward compatibility aliases (deprecated)
+simpleMovingAverage = simple_ma
+exponentialMovingAverage = ema
+bollingerBands = bollinger_bands
+relativeStrengthIndex = rsi
+weighted_ma = simple_ma  # Placeholder - implement if needed

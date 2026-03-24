@@ -1,8 +1,9 @@
-from typing import Any, List
 import json
+from typing import Any, List
+
+from agents.memory.memoryModels import MemoryEntry
 
 from .MemoryConnector import MemoryConnector
-from agents.memory.memoryModels import MemoryEntry
 
 
 class RedisConnector(MemoryConnector):

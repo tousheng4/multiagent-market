@@ -1,8 +1,8 @@
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Protocol, runtime_checkable
+from typing import Dict, List, Optional, Protocol, Tuple, runtime_checkable
 
-from .models.order import Order, OrderType, OrderSide, Trade
 from .models.exchange import Exchange
+from .models.order import Order, OrderSide, OrderType, Trade
 
 
 @runtime_checkable
@@ -19,6 +19,15 @@ class MarketClient(Protocol):
         quantity: int,
         price: Optional[float] = None,
     ) -> Tuple[Order, List[Trade]]: ...
+    def order_cmd(
+        self,
+        symbol: str,
+        order_type: OrderType,
+        side: OrderSide,
+        quantity: int,
+        price: Optional[float] = None,
+        cmd_id: Optional[str] = None,
+    ) -> str: ...
     def trades(self, symbol: Optional[str] = None) -> List[Trade]: ...
 
 
@@ -34,10 +43,10 @@ class AgentClient:
             raise ValueError("agent_id must be a non-empty string")
 
     def account(self) -> Dict:
-        return self.exchange.getAccount(self.agent_id)
+        return self.exchange.get_account(self.agent_id)
 
     def data(self, symbol: str) -> Dict:
-        return self.exchange.getMarketData(symbol)
+        return self.exchange.get_market_data(symbol)
 
     def order(
         self,
@@ -47,7 +56,28 @@ class AgentClient:
         quantity: int,
         price: Optional[float] = None,
     ) -> Tuple[Order, List[Trade]]:
-        return self.exchange.submitOrder(self.agent_id, symbol, order_type, side, quantity, price)
+        return self.exchange.submit_order(
+            self.agent_id, symbol, order_type, side, quantity, price
+        )
+
+    def order_cmd(
+        self,
+        symbol: str,
+        order_type: OrderType,
+        side: OrderSide,
+        quantity: int,
+        price: Optional[float] = None,
+        cmd_id: Optional[str] = None,
+    ) -> str:
+        return self.exchange.publish_order_cmd(
+            self.agent_id,
+            symbol,
+            order_type,
+            side,
+            quantity,
+            price,
+            cmd_id,
+        )
 
     def trades(self, symbol: Optional[str] = None) -> List[Trade]:
-        return self.exchange.getTradeHistory(symbol=symbol, agentId=self.agent_id)
+        return self.exchange.get_trade_history(symbol=symbol, agent_id=self.agent_id)
