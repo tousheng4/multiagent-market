@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from src import Exchange, Simulation
-from src.agents.SimpleAgents import MarketMakerAgent
+from src.agents.SimpleAgents import MarketMakerAgent, MomentumAgent, RandomAgent
 from src.data import DataFeed, DataLoader
 from src.environment.dispatchers import AuditWriter, Idem, RiskWatcher
 from src.environment.event_hub import EV_AUDIT, EV_ORDER_CMD, EV_SNAPSHOT, EventHub
@@ -17,7 +17,7 @@ def main() -> None:
         symbols=symbols,
         initial_cash=100000.0,
         hub=hub,
-        async_mode=True,
+        async_mode=False,
     )
 
     loader = DataLoader()
@@ -43,7 +43,26 @@ def main() -> None:
         order_size=5,
         target_position=50,
     )
-    sim.register_agent(mm, agent_id="mm-1")
+    sim.register_agent(mm, agentId="mm-1")
+
+    # 给做市商预设一些股票持仓，这样它才会挂卖单
+    for symbol in symbols:
+        exchange.position_records["mm-1"][symbol] = 50
+
+    # 添加一个动量Agent作为对手盘，促进交易
+    mom = MomentumAgent(
+        agent_id="mom-1",
+        exchange=exchange,
+        symbols=symbols,
+        lookback_period=5,
+        momentum_threshold=0.01,
+        order_size=10,
+    )
+    sim.register_agent(mom, agentId="mom-1")
+
+    # 给 MOM 预设一些股票持仓，这样它才能参与交易
+    for symbol in symbols:
+        exchange.position_records["mom-1"][symbol] = 30
 
     for _ in range(10):
         sim.step()

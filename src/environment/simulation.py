@@ -91,17 +91,17 @@ class Simulation:
         sid_data = None
         sid_snap = None
 
-        if hasattr(agent, "onEvent"):
+        if hasattr(agent, "on_event"):
 
             def on_data(msg, ag=agent):
-                ag.onEvent({"type": EV_DATA, "payload": msg.get("payload"), "msg": msg})
+                ag.on_event({"type": EV_DATA, "payload": msg.get("payload"), "msg": msg})
 
             sid_data = self.on(EV_DATA, on_data, name=f"{agentId}_data")
 
-        if hasattr(agent, "onSnapshot"):
+        if hasattr(agent, "on_snapshot"):
             sid_snap = self.on(
                 EV_SNAPSHOT,
-                lambda msg, ag=agent: ag.onSnapshot(msg.get("payload")),
+                lambda msg, ag=agent: ag.on_snapshot(msg.get("payload")),
                 name=f"{agentId}_snapshot",
             )
 

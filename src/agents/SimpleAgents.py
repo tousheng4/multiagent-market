@@ -166,12 +166,14 @@ class MarketMakerAgent(BaseAgent):
         account = self.get_account()
         for symbol in self.symbols:
             try:
-                # 获取中间价作为参考价
+                # 获取参考价：用 last_price 而不是 mid_price（mid_price 可能基于旧的挂单）
                 market_data = self.get_market_data(symbol)
-                mid_price = market_data.get("mid_price") or market_data.get(
-                    "last_price"
-                )
-                bid_price, ask_price = mm_quotes(mid_price, self.spread_bps)
+                ref_price = market_data.get("last_price")
+                if ref_price is None:
+                    ref_price = market_data.get("mid_price")
+                if ref_price is None:
+                    continue
+                bid_price, ask_price = mm_quotes(ref_price, self.spread_bps)
                 if bid_price is None or ask_price is None:
                     continue
 
@@ -183,7 +185,7 @@ class MarketMakerAgent(BaseAgent):
                         "symbol": symbol,
                         "bid": bid_price,
                         "ask": ask_price,
-                        "mid_price": mid_price,
+                        "ref_price": ref_price,
                         "position": account["positions"].get(symbol, 0),
                         "cash": account["cash"],
                     },
@@ -192,8 +194,10 @@ class MarketMakerAgent(BaseAgent):
                 position = account["positions"].get(symbol, 0)
                 cash = account["cash"]
 
+                # 做市商应该双向挂单，无论持仓如何都提供买卖报价
+                # 买方：检查现金是否足够
                 affordable = max_affordable_qty(cash, bid_price, self.order_size)
-                if position < self.target_position and affordable > 0:
+                if affordable > 0:
                     self.exchange.submit_order(
                         agent_id=self.agent_id,
                         symbol=symbol,
@@ -214,32 +218,28 @@ class MarketMakerAgent(BaseAgent):
                         },
                     )
 
-                if position > self.target_position and not within_band(
-                    position, self.target_position, self.order_size
-                ):
-                    sell_quantity = clamp_sell_qty(
-                        position - self.target_position, self.order_size
+                # 卖方：检查是否有持仓可卖
+                if position > 0:
+                    sell_quantity = min(position, self.order_size)
+                    self.exchange.submit_order(
+                        agent_id=self.agent_id,
+                        symbol=symbol,
+                        order_type=OrderType.LIMIT,
+                        side=OrderSide.SELL,
+                        quantity=sell_quantity,
+                        price=round(ask_price, 2),
                     )
-                    if sell_quantity > 0:
-                        self.exchange.submit_order(
-                            agent_id=self.agent_id,
-                            symbol=symbol,
-                            order_type=OrderType.LIMIT,
-                            side=OrderSide.SELL,
-                            quantity=sell_quantity,
-                            price=round(ask_price, 2),
-                        )
-                        self.log(
-                            f"MM Sell {sell_quantity} {symbol} @ {ask_price:.2f}",
-                            meta={
-                                "event": "trade",
-                                "mode": "market_maker",
-                                "side": "sell",
-                                "symbol": symbol,
-                                "qty": sell_quantity,
-                                "price": round(ask_price, 2),
-                            },
-                        )
+                    self.log(
+                        f"MM Sell {sell_quantity} {symbol} @ {ask_price:.2f}",
+                        meta={
+                            "event": "trade",
+                            "mode": "market_maker",
+                            "side": "sell",
+                            "symbol": symbol,
+                            "qty": sell_quantity,
+                            "price": round(ask_price, 2),
+                        },
+                    )
             except Exception as e:
                 logger.error(f"Error in {symbol}: {e}", exc_info=True)
                 self.log(

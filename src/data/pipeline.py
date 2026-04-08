@@ -1,12 +1,28 @@
 from __future__ import annotations
 
-import fcntl
 import io
 import os
 import re
+import sys
 import zipfile
 from typing import Dict, Iterable, List, Optional
 from urllib.request import urlopen
+
+if sys.platform == "win32":
+    import msvcrt
+
+    def _flock(fd, mode):
+        if mode == 0:  # LOCK_SH
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        elif mode == 1:  # LOCK_EX
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        elif mode == 2:  # LOCK_UN
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+
+    def _flock(fd, mode):
+        fcntl.flock(fd, mode)
 
 import duckdb
 import pandas as pd
@@ -250,7 +266,7 @@ class SnapshotStore:
         write_frame = write_frame.drop_duplicates(subset=["date"], keep="last")
 
         with open(lock_path, "a+", encoding="utf-8") as lock_file:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            _flock(lock_file.fileno(), 1)  # LOCK_EX = 1
             try:
                 connection = duckdb.connect(database=database_path)
                 committed = False
@@ -274,7 +290,7 @@ class SnapshotStore:
                             pass
                     connection.close()
             finally:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                _flock(lock_file.fileno(), 2)  # LOCK_UN = 2
 
         return {"duckdb": database_path, "table": table}
 
@@ -286,7 +302,7 @@ class SnapshotStore:
 
         table = self._table(name)
         with open(lock_path, "a+", encoding="utf-8") as lock_file:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_SH)
+            _flock(lock_file.fileno(), 0)  # LOCK_SH = 0
             try:
                 connection = duckdb.connect(database=database_path, read_only=True)
                 try:
@@ -306,7 +322,7 @@ class SnapshotStore:
                 finally:
                     connection.close()
             finally:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                _flock(lock_file.fileno(), 2)  # LOCK_UN = 2
 
         if output_frame.empty or "date" not in output_frame.columns:
             return None
