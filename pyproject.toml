@@ -12,6 +12,7 @@ dependencies = [
     "isort>=7.0.0",
     "jupyter>=1.1.1",
     "langchain>=1.0.8",
+    "langchain-community>=0.4.1",
     "matplotlib>=3.10.7",
     "numpy>=2.3.5",
     "pandas>=2.3.3",

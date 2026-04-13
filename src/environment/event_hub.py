@@ -13,6 +13,7 @@ EV_ORDER_ACK: Final[str] = "order_ack"
 EV_ORDER_REJECT: Final[str] = "order_reject"
 EV_TRADE: Final[str] = "trade"
 EV_AUDIT: Final[str] = "audit"
+EV_NEWS: Final[str] = "news"
 
 
 def _now() -> str:

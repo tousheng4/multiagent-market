@@ -1,7 +1,7 @@
 from .data.pipeline import DataFeed, DataLoader, SnapshotStore
 from .environment.dispatchers import (AuditWriter, Idem, QueueDispatcher,
                                       RiskWatcher)
-from .environment.event_hub import (EV_AUDIT, EV_DATA, EV_ORDER_ACK,
+from .environment.event_hub import (EV_AUDIT, EV_DATA, EV_NEWS, EV_ORDER_ACK,
                                     EV_ORDER_CMD, EV_ORDER_REJECT, EV_SNAPSHOT,
                                     EV_TRADE, EventHub)
 from .environment.kafka_bridge import KafkaBridge
@@ -27,4 +27,5 @@ __all__ = [
     "EV_ORDER_REJECT",
     "EV_TRADE",
     "EV_AUDIT",
+    "EV_NEWS",
 ]

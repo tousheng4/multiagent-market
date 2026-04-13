@@ -5,6 +5,7 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
 from ..data.pipeline import DataFeed
+from .event_hub import EV_NEWS
 from ..market import Exchange
 from ..market.client import AgentClient
 from .dispatchers import QueueDispatcher
@@ -20,6 +21,7 @@ class Simulation:
         hub: Optional[EventHub] = None,
         async_mode: bool = False,
         queue_size: int = 4096,
+        news_generator: Optional[Any] = None,
     ):
         self.exchange = exchange
         self.symbols = symbols
@@ -29,6 +31,7 @@ class Simulation:
         self.hub = hub or EventHub()
         self.exchange.set_hub(self.hub)
         self.exchange.start_order_consumer()
+        self.news_generator = news_generator
 
         self._own_dispatch = async_mode
         self.dispatch = (
@@ -137,6 +140,14 @@ class Simulation:
                 if row is not None:
                     advanced = True
                     key = str(row.get("date") or self.exchange.current_time)
+                    # 发出新闻事件（基于当前价格）
+                    if self.news_generator:
+                        row_prices = row.get("prices", {})
+                        prices = {
+                            sym: (row_prices.get(sym, {}) or {}).get("close")
+                            for sym in self.symbols
+                        }
+                        self.news_generator.generate(self.current_step + 1, prices)
                     self.hub.emit(EV_DATA, row, key=key, src="simulation")
 
         for agent in self.agents:

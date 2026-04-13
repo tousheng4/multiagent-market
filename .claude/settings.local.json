@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(uv run python:*)",
-      "Bash(uv run main.py)"
+      "Bash(uv run main.py)",
+      "Bash(python main.py)",
+      "Bash(uv pip:*)",
+      "Bash(.venv/Scripts/python.exe -m pip install duckdb)",
+      "Bash(uv sync:*)",
+      "Bash(uv run:*)",
+      "Bash(uv add:*)",
+      "Bash(echo \"Exit code: $?\")"
     ]
   }
 }

@@ -40,7 +40,7 @@ class GetMarketDataTool(BaseTool):
     def _run(self, symbol: str) -> Dict[str, Any]:
         """执行工具"""
         try:
-            data = self.exchange.getMarketData(symbol)
+            data = self.exchange.get_market_data(symbol)
             return {"success": True, "data": data}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -76,7 +76,7 @@ class GetAccountTool(BaseTool):
     def _run(self) -> Dict[str, Any]:
         """执行工具"""
         try:
-            return {"success": True, "data": self.exchange.getAccount(self.agentId)}
+            return {"success": True, "data": self.exchange.get_account(self.agentId)}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -145,10 +145,10 @@ class SubmitOrderTool(BaseTool):
                 price = None
 
             # 提交订单
-            order, trades = self.exchange.submitOrder(
-                agentId=self.agentId,
+            order, trades = self.exchange.submit_order(
+                agent_id=self.agentId,
                 symbol=symbol,
-                orderType=orderType,
+                order_type=orderType,
                 side=orderSide,
                 quantity=quantity,
                 price=price,
@@ -223,7 +223,7 @@ class GetTradeHistoryTool(BaseTool):
     ) -> Dict[str, Any]:
         """执行工具"""
         try:
-            trades = self.exchange.getTradeHistory(symbol=symbol, agentId=self.agentId)
+            trades = self.exchange.get_trade_history(symbol=symbol, agent_id=self.agentId)
 
             if after_ts is not None:
                 trades = [
