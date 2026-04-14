@@ -1,4 +1,4 @@
-# Python-generated files
+# Python generated
 __pycache__/
 *.py[oc]
 build/
@@ -16,3 +16,17 @@ data/processed/
 
 # Environment variables (contains secrets)
 .env
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Claude Code
+.claude/
+
+# IDE
+.idea/
+
+# Logs
+*.log

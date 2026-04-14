@@ -1,0 +1,187 @@
+/* 赛博朋克全局变量 */
+:root {
+  --bg-primary: #0a0a0f;
+  --bg-panel: #12121a;
+  --bg-panel-hover: #1a1a2a;
+  --border-neon: #00f0ff;
+  --color-up: #00ff88;
+  --color-down: #ff2d6a;
+  --color-warn: #f0f000;
+  --color-text: #e0e0ff;
+  --color-text-dim: #7070a0;
+  --font-display: 'Orbitron', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --glow-cyan: 0 0 8px #00f0ff80, 0 0 20px #00f0ff40;
+  --glow-green: 0 0 8px #00ff8880, 0 0 20px #00ff8840;
+  --glow-red: 0 0 8px #ff2d6a80, 0 0 20px #ff2d6a40;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  overflow-x: hidden;
+  background-image:
+    radial-gradient(ellipse at 20% 0%, #00f0ff08 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 100%, #ff2d6a08 0%, transparent 50%);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  background: var(--bg-panel);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-neon);
+  border-radius: 3px;
+}
+
+/* ---------- Header ---------- */
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  border-bottom: 1px solid #1a1a3a;
+  background: linear-gradient(180deg, #0f0f1a 0%, #0a0a0f 100%);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
+
+.logo {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 900;
+  color: var(--border-neon);
+  letter-spacing: 0.15em;
+  text-shadow: var(--glow-cyan);
+}
+
+.header-sub {
+  font-size: 11px;
+  color: var(--color-text-dim);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* ---------- News Ticker ---------- */
+.news-ticker {
+  display: flex;
+  gap: 32px;
+  padding: 8px 24px;
+  background: #0d0d18;
+  border-bottom: 1px solid #1a1a3a;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.news-item {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.news-item.up { color: var(--color-up); }
+.news-item.down { color: var(--color-down); }
+
+/* ---------- Dashboard Grid ---------- */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  grid-template-rows: auto auto;
+  gap: 16px;
+  padding: 16px 24px;
+}
+
+.price-panel {
+  grid-column: 1 / 2;
+  grid-row: 1;
+}
+
+.trades-panel {
+  grid-column: 2 / 3;
+  grid-row: 1 / 3;
+}
+
+.pnl-panel {
+  grid-column: 1 / 2;
+  grid-row: 2;
+}
+
+/* ---------- Panel ---------- */
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid #1a1a3a;
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+}
+
+.panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-neon), transparent);
+  opacity: 0.6;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid #1a1a3a;
+  background: #0d0d18;
+}
+
+.panel-title {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--border-neon);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.panel-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border-neon);
+  color: var(--border-neon);
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+  .price-panel, .trades-panel, .pnl-panel {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}

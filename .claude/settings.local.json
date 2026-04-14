@@ -9,7 +9,19 @@
       "Bash(uv sync:*)",
       "Bash(uv run:*)",
       "Bash(uv add:*)",
-      "Bash(echo \"Exit code: $?\")"
+      "Bash(echo \"Exit code: $?\")",
+      "Bash(python -c \"from main import app; print\\('OK'\\)\")",
+      "Bash(python -c \"import sys; print\\(sys.executable\\)\")",
+      "Bash(\"E:/ljc/work/learning/multiagent-market/.venv/Scripts/python.exe\" -c \"from main import app; print\\('OK'\\)\")",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(.venv/Scripts/python.exe -c \"from main import app; print\\('OK'\\)\")",
+      "Bash(uv python:*)",
+      "Bash(uv venv:*)",
+      "Bash(python -c ':*)",
+      "Bash(cp backend/requirements.txt src/server/requirements.txt)",
+      "Bash(cp backend/.env.example src/server/.env.example)",
+      "Bash(rm -rf backend)"
     ]
   }
 }

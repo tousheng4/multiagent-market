@@ -191,6 +191,7 @@ class Exchange:
                 {
                     "trade_id": trade.trade_id,
                     "symbol": trade.symbol,
+                    "side": order.side.value,
                     "buy_order_id": trade.buy_order_id,
                     "sell_order_id": trade.sell_order_id,
                     "buyer_id": trade.buyer_id,

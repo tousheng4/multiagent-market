@@ -1,0 +1,56 @@
+.control-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border: 1px solid var(--border-neon);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--border-neon);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-transform: uppercase;
+}
+
+.btn:hover {
+  background: var(--border-neon);
+  color: var(--bg-primary);
+  box-shadow: var(--glow-cyan);
+}
+
+.btn-start {
+  border-color: var(--color-up);
+  color: var(--color-up);
+}
+.btn-start:hover {
+  background: var(--color-up);
+  box-shadow: var(--glow-green);
+}
+
+.btn-pause {
+  border-color: var(--color-warn);
+  color: var(--color-warn);
+}
+.btn-pause:hover {
+  background: var(--color-warn);
+  color: var(--bg-primary);
+}
+
+.btn-resume {
+  border-color: var(--color-up);
+  color: var(--color-up);
+}
+.btn-resume:hover {
+  background: var(--color-up);
+  color: var(--bg-primary);
+  box-shadow: var(--glow-green);
+}
